@@ -1,0 +1,169 @@
+import json
+import numpy as np
+import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
+
+# ==============================================================================
+# 0. 페이지 기본 설정 및 사이드바 발표자 정보 (조건 5)
+# ==============================================================================
+st.set_page_config(layout="wide")
+
+st.sidebar.title("📌 발표자 정보")
+st.sidebar.markdown(
+    """
+- **발표자:** 20421 이연우
+- **분야:** 물리 / 생명과학
+- **주제:** 미토콘드리아 ATP 합성 효소 분자 모터 3D 시뮬레이션
+"""
+)
+
+# ==============================================================================
+# [시뮬레이션 표시 코드] (조건 4 - 수정 없이 그대로 복사)
+# ==============================================================================
+GLOWSCRIPT = "https://www.glowscript.org"
+
+PAGE = """<!doctype html>
+<html><head><meta charset="utf-8">
+<link type="text/css" href="__GS__/css/redmond/2.1/jquery-ui.custom.css" rel="stylesheet" />
+<link type="text/css" href="__GS__/css/ide.css" rel="stylesheet" />
+<script src="__GS__/lib/jquery/2.1/jquery.min.js"></script>
+<script src="__GS__/lib/jquery/2.1/jquery-ui.custom.min.js"></script>
+<script src="__GS__/package/glow.3.2.min.js"></script>
+<script src="__GS__/package/RScompiler.3.2.min.js"></script>
+<script src="__GS__/package/RSrun.3.2.min.js"></script>
+<style>
+  body { background: white; margin: 0; padding: 8px; font-family: sans-serif; }
+  #error { color: #c00; white-space: pre-wrap; font-family: monospace; }
+</style>
+</head><body>
+<div id="error"></div>
+<div id="glowscript" class="glowscript"></div>
+<script>
+function showError(msg) {
+  document.getElementById("error").textContent = "시뮬레이션 오류: " + msg;
+}
+window.onerror = function (msg) { showError(msg); };
+try {
+  var source = __SOURCE__;
+  var js = glowscript_compile(source, {lang: "vpython", version: "3.2"});
+  window.__context = { glowscript_container: $("#glowscript").removeAttr("id") };
+  (0, eval)(js + ";window.__main = __main__;");
+  var result = window.__main();
+  if (result && result.catch) result.catch(function (e) { showError(e); });
+} catch (e) {
+  showError(e);
+}
+</script>
+</body></html>
+"""
+
+
+def show_vpython(code, height=800):
+    source_js = json.dumps(code.strip()).replace("</", "<\\/")
+    html = PAGE.replace("__GS__", GLOWSCRIPT).replace("__SOURCE__", source_js)
+    components.html(html, height=height, scrolling=True)
+
+
+# ==============================================================================
+# [내 VPython 코드] (조건 3 - 원문 단 한 글자도 수정 없이 사용)
+# ==============================================================================
+VPYTHON_CODE = r"""GlowScript 3.0 WebVPython
+
+# ==============================================================================
+# 1. 3D 캔버스 및 그래프 설정
+# ==============================================================================
+scene = canvas(
+    title='[생명과학Ⅱ] 미토콘드리아 ATP 합성 효소 분자 모터 3D 시뮬레이션',
+    width=800, height=500,
+    center=vector(0, 0, 0),
+    background=color.gray(0.1)
+)
+
+# ATP 합성량 및 pH 기울기 실시간 그래프
+atp_graph = graph(
+    title='ATP Production & Proton Gradient (ΔpH)',
+    xtitle='Time (s)', ytitle='Count / ΔpH',
+    width=800, height=250,
+    background=color.black, foreground=color.white
+)
+f_atp = gcurve(color=color.yellow, width=2, label='Cumulative ATP Produced')
+f_ph = gcurve(color=color.cyan, width=2, label='Proton Gradient (ΔpH)')
+
+# ==============================================================================
+# 2. 미토콘드리아 내막 및 ATP 합성 효소 3D 구조 배치
+# ==============================================================================
+# (1) 미토콘드리아 내막 (Membrane Panel)
+membrane_top = box(pos=vector(0, 0.4, 0), size=vector(10, 0.1, 10), color=color.orange, opacity=0.4)
+membrane_bot = box(pos=vector(0, -0.4, 0), size=vector(10, 0.1, 10), color=color.orange, opacity=0.4)
+
+# 영역 안내 라벨
+text(text='Intermembrane Space (High H+)', pos=vector(-4.5, 2.5, 0), height=0.3, color=color.cyan)
+text(text='Inner Membrane', pos=vector(-4.5, 0.0, 0), height=0.25, color=color.orange)
+text(text='Matrix (Low H+ / ADP + Pi -> ATP)', pos=vector(-4.5, -2.5, 0), height=0.3, color=color.yellow)
+
+# (2) ATP 합성 효소 (ATP Synthase Structure)
+# F0 통로 (막에 박혀있는 고정 지지체)
+f0_stator = cylinder(pos=vector(0, -0.4, 0), axis=vector(0, 0.8, 0), radius=0.9, color=color.gray(0.6), opacity=0.6)
+
+# 회전하는 중앙 축 (Central Shaft / Rotor)
+rotor = cylinder(pos=vector(0, -1.8, 0), axis=vector(0, 3.2, 0), radius=0.25, color=color.magenta)
+
+# 회전축에 달린 날개 (회전 시각화용)
+rotor_blade = box(pos=vector(0, 0, 0), size=vector(0.8, 0.2, 0.2), color=color.red)
+
+# F1 머리 부분 (기질 쪽에 위치한 catalytic subunit)
+f1_head = sphere(pos=vector(0, -1.3, 0), radius=0.8, color=color.blue, opacity=0.6)
+
+# ==============================================================================
+# 3. 수소 이온(H+) 및 ADP/ATP 분자 초기화
+# ==============================================================================
+num_protons_top = 80   # 막간 공간 (높은 H+ 농도)
+num_protons_bot = 10   # 기질 영역 (낮은 H+ 농도)
+
+protons = []
+
+# 막간 공간 H+ 생성 (위쪽)
+for i in range(num_protons_top):
+    pos = vector(random() * 8 - 4, random() * 1.8 + 0.6, random() * 8 - 4)
+    p = sphere(pos=pos, radius=0.1, color=color.cyan)
+    p.v = vector(random() - 0.5, random() - 0.5, random() - 0.5) * 1.5
+    protons.append(p)
+
+# 기질 H+ 생성 (아래쪽)
+for i in range(num_protons_bot):
+    pos = vector(random() * 8 - 4, random() * -1.8 - 0.6, random() * 8 - 4)
+    p = sphere(pos=pos, radius=0.1, color=color.cyan)
+    p.v = vector(random() - 0.5, random() - 0.5, random() - 0.5) * 1.5
+    protons.append(p)
+
+# ==============================================================================
+# 4. 시뮬레이션 파라미터 및 변수
+# ==============================================================================
+dt = 0.02
+t = 0.0
+atp_count = 0
+rotation_angle = 0.0
+proton_channel_count = 0  # F0를 통과한 H+ 수
+
+info_label = label(
+    pos=vector(0, 3.8, 0),
+    text='ΔpH: 2.0 | Rotations: 0 | ATP Synthesized: 0',
+    height=16, box=False, color=color.white
+)
+
+# ==============================================================================
+# 5. 메인 시뮬레이션 루프
+# ==============================================================================
+while True:
+    rate(50)  # 초당 50회 연산
+    
+    # 1) H+ 이온들의 브라운 운동 및 F0 통로로의 이동
+    top_count = 0
+    bot_count = 0
+    
+    for p in protons:
+        p.pos = p.pos + p.v * dt
+        
+        # 영역 경계 반사 (막 이외의 영역)
+        if abs(p.pos.x) > 4.5: p.v.
